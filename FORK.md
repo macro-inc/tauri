@@ -40,9 +40,9 @@ must also be updated. This rebase does not modify Macro or publish the fork.
 Passed on `aarch64-apple-darwin`:
 
 - `cargo check -p tauri --target aarch64-apple-darwin`
-- `cargo test -p tauri --lib protocol::tauri::tests --target aarch64-apple-darwin`
-  (two regression tests for public delegation, assets, request hooks, errors,
-  and CORS)
+- `cargo test -p tauri --lib --target aarch64-apple-darwin`
+  (61 tests, including two new regression tests for public delegation, assets,
+  request hooks, errors, and CORS)
 - `cargo test -p tauri-bundler --lib utils::http_utils::tests --target aarch64-apple-darwin`
   (three tests)
 
