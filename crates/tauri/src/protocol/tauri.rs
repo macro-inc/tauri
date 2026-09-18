@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-use std::{borrow::Cow, sync::Arc};
+//! Handler for the `tauri://` custom protocol, serving bundled app assets
+//! in production and proxying to the dev server on mobile during development.
+
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use http::{Request, Response as HttpResponse, StatusCode, header::CONTENT_TYPE};
 use tauri_utils::config::HeaderAddition;
 
 use crate::{
-  Runtime,
+  Manager, Runtime,
   manager::{AppManager, webview::PROXY_DEV_SERVER},
   webview::{UriSchemeProtocolHandler, WebResourceRequestHandler},
 };
@@ -24,11 +27,17 @@ struct CachedResponse {
   body: Vec<u8>,
 }
 
-pub fn get<R: Runtime>(
-  manager: Arc<AppManager<R>>,
-  window_origin: String,
+/// Creates a URI scheme protocol handler for the `tauri://` custom protocol.
+///
+/// Serves bundled assets in production and proxies the dev server on mobile.
+/// Accepts an application handle so custom protocols can delegate to this handler.
+pub fn get<M: Manager<R>, R: Runtime>(
+  manager: M,
+  window_origin: &str,
   web_resource_request_handler: Option<Box<WebResourceRequestHandler>>,
 ) -> UriSchemeProtocolHandler {
+  let manager = manager.manager_owned();
+  let window_origin = window_origin.to_string();
   #[cfg(all(dev, mobile))]
   let (url, client, response_cache) = {
     let use_https = window_origin.starts_with("https");
@@ -76,7 +85,7 @@ pub fn get<R: Runtime>(
         );
       }
     }
-    let client = client_builder.build().unwrap();
+    let client = client_builder.pool_max_idle_per_host(6).build().unwrap();
 
     let response_cache = Mutex::new(HashMap::new());
 
@@ -93,19 +102,34 @@ pub fn get<R: Runtime>(
     url,
     #[cfg(all(dev, mobile))]
     response_cache,
+    #[cfg(all(dev, mobile))]
+    semaphore: tokio::sync::Semaphore::new(6),
   });
 
   Box::new(move |_, request, responder| {
     let context = context.clone();
     crate::async_runtime::spawn(async move {
-      match get_response(&context, request).await {
-        Ok(response) => responder.respond(response),
-        Err(e) => responder.respond(
+      // Bound active requests as well as idle connections to avoid exhausting
+      // file descriptors when the mobile dev server serves many modules.
+      #[cfg(all(dev, mobile))]
+      let _permit = context.semaphore.acquire().await.unwrap();
+
+      match tokio::time::timeout(Duration::from_secs(60), get_response(&context, request)).await {
+        Ok(Ok(response)) => responder.respond(response),
+        Ok(Err(e)) => responder.respond(
           HttpResponse::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header(CONTENT_TYPE, mime::TEXT_PLAIN.essence_str())
             .header("Access-Control-Allow-Origin", &context.window_origin)
             .body(e.to_string().into_bytes())
+            .unwrap(),
+        ),
+        Err(_) => responder.respond(
+          HttpResponse::builder()
+            .status(StatusCode::GATEWAY_TIMEOUT)
+            .header(CONTENT_TYPE, mime::TEXT_PLAIN.essence_str())
+            .header("Access-Control-Allow-Origin", &context.window_origin)
+            .body(b"request to dev server timed out".to_vec())
             .unwrap(),
         ),
       }
@@ -124,6 +148,8 @@ struct Context<R: Runtime> {
   client: reqwest::Client,
   #[cfg(all(dev, mobile))]
   response_cache: Mutex<HashMap<String, CachedResponse>>,
+  #[cfg(all(dev, mobile))]
+  semaphore: tokio::sync::Semaphore,
 }
 
 async fn get_response<R: Runtime>(
@@ -140,6 +166,7 @@ async fn get_response<R: Runtime>(
     url,
     #[cfg(all(dev, mobile))]
     response_cache,
+    ..
   } = context;
 
   // use the entire URI as we are going to proxy the request
@@ -216,16 +243,23 @@ async fn proxy_dev_request(
   }
   proxy_builder = proxy_builder.body(request.body().clone());
 
-  let response = proxy_builder.send().await.map_err(|e|{
+  let response = proxy_builder.send().await.map_err(|e| {
+    let mut chain = Vec::new();
+    let mut source = std::error::Error::source(&e);
+    while let Some(error) = source {
+      chain.push(error.to_string());
+      source = error.source();
+    }
     let error_message = format!(
-      "Failed to request {url}: {e}{}",
+      "Failed to request {url}: {e}{} [sources: {}]",
       if let Some(s) = e.status() {
-        format!("status code: {}", s.as_u16())
-      } else if cfg!(target_os = "ios") {
+        format!(", status code: {}", s.as_u16())
+      } else if cfg!(target_os = "ios") && (e.is_connect() || e.is_timeout()) {
         ", did you grant local network permissions? That is required to reach the development server. Please grant the permission via the prompt or in `Settings > Privacy & Security > Local Network` and restart the app. See https://support.apple.com/en-us/102229 for more information.".to_string()
       } else {
         "".to_string()
-      }
+      },
+      chain.join(" -> ")
     );
     log::error!("{error_message}");
     error_message
