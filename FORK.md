@@ -40,11 +40,17 @@ must also be updated. This rebase does not modify Macro or publish the fork.
 Passed on `aarch64-apple-darwin`:
 
 - `cargo check -p tauri --target aarch64-apple-darwin`
+- `cargo check -p tauri --features custom-protocol,protocol-asset,isolation --target aarch64-apple-darwin`
+- Formatting check for the modified protocol handler.
 - `cargo test -p tauri --lib --target aarch64-apple-darwin`
   (61 tests, including two new regression tests for public delegation, assets,
   request hooks, errors, and CORS)
 - `cargo test -p tauri-bundler --lib utils::http_utils::tests --target aarch64-apple-darwin`
   (three tests)
+
+The iOS compile check was attempted but blocked: the installed Rust toolchain
+lacks the `aarch64-apple-ios` standard library (`E0463`). The mobile-only proxy
+safeguards therefore still need a mobile compile check.
 
 Mobile device behavior has not been exercised. In particular, verify resume
 handling in Macro and dev-server loading under concurrency on Android/iOS
