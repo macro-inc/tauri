@@ -12,7 +12,7 @@ use http::{Request, Response as HttpResponse, StatusCode, header::CONTENT_TYPE};
 use tauri_utils::config::HeaderAddition;
 
 use crate::{
-  Runtime,
+  Manager, Runtime,
   manager::{AppManager, webview::PROXY_DEV_SERVER},
   webview::{UriSchemeProtocolHandler, WebResourceRequestHandler},
 };
@@ -24,11 +24,15 @@ struct CachedResponse {
   body: Vec<u8>,
 }
 
-pub fn get<R: Runtime>(
-  manager: Arc<AppManager<R>>,
-  window_origin: String,
+/// Creates a URI scheme protocol handler for the `tauri://` custom protocol.
+///
+/// Accepts an application handle so custom protocols can delegate to this handler.
+pub fn get<M: Manager<R>, R: Runtime>(
+  manager: M,
+  window_origin: &str,
   web_resource_request_handler: Option<Box<WebResourceRequestHandler>>,
 ) -> UriSchemeProtocolHandler {
+  let manager = manager.manager_owned();
   let use_https = window_origin.starts_with("https");
   let url = {
     let mut url = manager.get_app_url(use_https).as_str().to_string();

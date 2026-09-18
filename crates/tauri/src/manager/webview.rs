@@ -267,8 +267,8 @@ impl<R: Runtime> WebviewManager<R> {
     if !registered_scheme_protocols.contains(&"tauri".into()) {
       let web_resource_request_handler = pending.web_resource_request_handler.take();
       let protocol = crate::protocol::tauri::get(
-        manager.manager_owned(),
-        window_origin.clone(),
+        manager.app_handle().clone(),
+        &window_origin,
         web_resource_request_handler,
       );
       pending.register_uri_scheme_protocol("tauri", move |webview_id, request, responder| {
