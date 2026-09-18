@@ -299,3 +299,76 @@ async fn proxy_dev_request(
     .body(response.body.into())
     .map_err(Into::into)
 }
+
+#[cfg(all(test, not(all(dev, mobile))))]
+mod tests {
+  use super::*;
+  use crate::{
+    Assets, UriSchemeResponder,
+    test::{MockRuntime, mock_builder, mock_context, noop_assets},
+  };
+  use tauri_utils::assets::{AssetKey, AssetsIter, CspHash};
+
+  struct TestAssets;
+
+  impl Assets<MockRuntime> for TestAssets {
+    fn get(&self, key: &AssetKey) -> Option<Cow<'_, [u8]>> {
+      (key.as_ref() == "/test.js").then_some(Cow::Borrowed(b"console.log('test');"))
+    }
+
+    fn iter(&self) -> Box<AssetsIter<'_>> {
+      Box::new(std::iter::empty())
+    }
+
+    fn csp_hashes(&self, _: &AssetKey) -> Box<dyn Iterator<Item = CspHash<'_>> + '_> {
+      Box::new(std::iter::empty())
+    }
+  }
+
+  fn request(handler: UriSchemeProtocolHandler, uri: &str) -> HttpResponse<Cow<'static, [u8]>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    handler(
+      "main",
+      Request::builder().uri(uri).body(Vec::new()).unwrap(),
+      UriSchemeResponder(Box::new(move |response| tx.send(response).unwrap())),
+    );
+    rx.recv_timeout(Duration::from_secs(5)).unwrap()
+  }
+
+  #[test]
+  fn public_handler_accepts_app_handle_and_serves_assets() {
+    let app = mock_builder().build(mock_context(TestAssets)).unwrap();
+    let handler = crate::protocol::tauri::get(
+      app.handle().clone(),
+      "tauri://localhost",
+      Some(Box::new(|request, response| {
+        assert_eq!(request.uri().query(), Some("v=1"));
+        response
+          .headers_mut()
+          .insert("x-custom", "yes".parse().unwrap());
+      })),
+    );
+    let response = request(handler, "tauri://localhost/test.js?v=1");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+      response.headers()["Access-Control-Allow-Origin"],
+      "tauri://localhost"
+    );
+    assert_eq!(response.headers()["x-custom"], "yes");
+    assert_eq!(response.body().as_ref(), b"console.log('test');");
+  }
+
+  #[test]
+  fn public_handler_returns_asset_errors_with_cors() {
+    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+    let handler = crate::protocol::tauri::get(app.handle().clone(), "tauri://localhost", None);
+    let response = request(handler, "tauri://localhost/missing.js");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/plain");
+    assert_eq!(
+      response.headers()["Access-Control-Allow-Origin"],
+      "tauri://localhost"
+    );
+    assert!(!response.body().is_empty());
+  }
+}
