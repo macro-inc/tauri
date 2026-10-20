@@ -285,6 +285,7 @@ mod tests {
     Assets, UriSchemeResponder,
     test::{MockRuntime, mock_builder, mock_context, noop_assets},
   };
+  use std::time::Duration;
   use tauri_utils::assets::{AssetKey, AssetsIter, CspHash};
 
   struct TestAssets;
