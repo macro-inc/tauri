@@ -8,4 +8,5 @@
 pub mod asset;
 #[cfg(feature = "isolation")]
 pub mod isolation;
+/// The `tauri://` protocol handler, public so apps can delegate custom protocols to it.
 pub mod tauri;

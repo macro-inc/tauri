@@ -216,4 +216,6 @@ config-toml = ["tauri-macros/config-toml"]
 image-ico = ["image/ico"]
 image-png = ["image/png"]
 dynamic-acl = []
+# No-op: plugins written for Tauri 2 still enable `wry`; the runtime is now a separate crate.
+wry = []
 specta = ["dep:specta"]
