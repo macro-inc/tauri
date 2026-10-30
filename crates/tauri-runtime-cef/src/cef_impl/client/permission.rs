@@ -182,6 +182,7 @@ enum AppDecision {
 wrap_permission_handler! {
   pub struct TauriCefPermissionHandler {
     permission_request_handler: Option<Arc<PermissionRequestHandler>>,
+    desktop_capture_handler: Option<Arc<crate::DesktopCaptureHandler>>,
   }
 
   impl PermissionHandler {
@@ -194,8 +195,28 @@ wrap_permission_handler! {
       callback: Option<&mut MediaAccessCallback>,
     ) -> ::std::os::raw::c_int {
       let host = browser_host(browser);
+      let decision = self.decide(requested_permissions, media_permission_kind);
 
-      match self.decide(requested_permissions, media_permission_kind) {
+      // The desktop capture handler grants what `PermissionKind` cannot name: the
+      // app confirms the user picked a source, and the page named that source in
+      // its request. A permission handler's `Deny` still wins.
+      if !matches!(decision, AppDecision::Denied)
+        && grants_desktop_capture(requested_permissions)
+        && self.desktop_capture_handler.as_ref().is_some_and(|handler| handler())
+      {
+        let Some(callback) = callback else {
+          return 0;
+        };
+        allow_content_settings(
+          host.as_ref(),
+          requesting_origin,
+          &media_content_settings(requested_permissions),
+        );
+        callback.cont(requested_permissions);
+        return 1;
+      }
+
+      match decision {
         // Answer for the application, whatever the runtime style: neither Chrome's
         // prompt nor Alloy's blanket grant may override an explicit answer.
         AppDecision::Denied => {

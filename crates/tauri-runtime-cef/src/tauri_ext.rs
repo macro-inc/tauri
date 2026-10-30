@@ -294,6 +294,14 @@ pub trait WebviewWindowBuilderCefExt {
   #[must_use]
   fn on_console_message<F: Fn(ConsoleMessage) + Send + Sync + 'static>(self, handler: F) -> Self;
 
+  /// Grants this webview's desktop capture requests when `handler` returns `true`.
+  ///
+  /// See [`CefWebviewAttributes::desktop_capture_handler`]. The callback runs
+  /// synchronously on CEF's UI thread, so it must return promptly and must not
+  /// wait for an event-loop operation.
+  #[must_use]
+  fn on_desktop_capture_request<F: Fn() -> bool + Send + Sync + 'static>(self, handler: F) -> Self;
+
   /// Keeps the named families of Chrome commands rather than swallowing them.
   ///
   /// A Chrome style browser keeps its whole accelerator table live even hosted as a
@@ -386,6 +394,17 @@ where
     self
   }
 
+  fn on_desktop_capture_request<F: Fn() -> bool + Send + Sync + 'static>(
+    mut self,
+    handler: F,
+  ) -> Self {
+    let handler = Arc::new(handler);
+    with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
+      attributes.desktop_capture_handler = Some(handler);
+    });
+    self
+  }
+
   fn allow_chrome_commands<I: IntoIterator<Item = ChromeCommandGroup>>(
     mut self,
     groups: I,
@@ -439,6 +458,14 @@ pub trait WebviewBuilderCefExt {
   /// of a DevTools window opened on this webview is reported here.
   #[must_use]
   fn on_console_message<F: Fn(ConsoleMessage) + Send + Sync + 'static>(self, handler: F) -> Self;
+
+  /// Grants this webview's desktop capture requests when `handler` returns `true`.
+  ///
+  /// See [`CefWebviewAttributes::desktop_capture_handler`]. The callback runs
+  /// synchronously on CEF's UI thread, so it must return promptly and must not
+  /// wait for an event-loop operation.
+  #[must_use]
+  fn on_desktop_capture_request<F: Fn() -> bool + Send + Sync + 'static>(self, handler: F) -> Self;
 
   /// Keeps the named families of Chrome commands rather than swallowing them.
   ///
@@ -496,6 +523,17 @@ where
     let handler = Arc::new(handler);
     with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
       attributes.console_message_handler = Some(handler);
+    });
+    self
+  }
+
+  fn on_desktop_capture_request<F: Fn() -> bool + Send + Sync + 'static>(
+    mut self,
+    handler: F,
+  ) -> Self {
+    let handler = Arc::new(handler);
+    with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
+      attributes.desktop_capture_handler = Some(handler);
     });
     self
   }

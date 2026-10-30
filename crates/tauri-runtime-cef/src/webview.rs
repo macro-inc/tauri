@@ -330,6 +330,10 @@ pub enum ConsoleMessageLevel {
 /// Synchronous observer of renderer console output.
 pub type ConsoleMessageHandler = dyn Fn(ConsoleMessage) + Send + Sync + 'static;
 
+/// Decides whether a desktop capture request is granted; see
+/// [`CefWebviewAttributes::desktop_capture_handler`].
+pub type DesktopCaptureHandler = dyn Fn() -> bool + Send + Sync + 'static;
+
 /// Last look at a webview's [`cef::BrowserSettings`] before its browser is created.
 pub type BrowserSettingsCallback = dyn Fn(&mut cef::BrowserSettings) + Send + Sync + 'static;
 
@@ -656,6 +660,10 @@ impl<T: UserEvent> WinitCefApp<T> {
         .console_message_handler
         .clone(),
       permission_request_handler: pending.permission_request_handler.take().map(Arc::from),
+      desktop_capture_handler: pending
+        .runtime_specific_attributes
+        .desktop_capture_handler
+        .clone(),
       web_content_process_terminate_handler,
     };
 
@@ -1289,7 +1297,9 @@ pub enum RuntimeStyle {
 /// synthesises the full desktop and returns it with no picker at all. Since
 /// `PermissionKind::DisplayCapture` names no screen, window or tab, a blanket
 /// `.on_permission_request(|_| PermissionResponse::Allow)` would silently hand any
-/// page in the webview a full-desktop stream.
+/// page in the webview a full-desktop stream. An app that shows its own source
+/// picker grants desktop capture through
+/// [`desktop_capture_handler`](Self::desktop_capture_handler) instead.
 ///
 /// # Chrome accelerators an app window does not get
 ///
@@ -1338,6 +1348,17 @@ pub struct CefWebviewAttributes {
   /// Scoped to this webview's own native browser, so neither a CEF-owned popup's
   /// output nor that of a DevTools window opened on this webview is reported here.
   pub console_message_handler: Option<Arc<ConsoleMessageHandler>>,
+  /// Grants the desktop capture requests of this webview's own content.
+  ///
+  /// Consulted for every media request that carries a desktop capture bit and that
+  /// the permission handler did not deny; `true` grants the whole request. CEF
+  /// captures the source the page named — `getUserMedia()` with
+  /// `chromeMediaSource: 'desktop'` and a `chromeMediaSourceId` — and the full
+  /// primary display when it named none, so this is where the app confirms that the
+  /// user just picked a source in its own UI. Without it, desktop capture keeps
+  /// CEF's default: Chromium's picker under Chrome style, a refusal under Alloy
+  /// style. CEF-owned popups never inherit it.
+  pub desktop_capture_handler: Option<Arc<DesktopCaptureHandler>>,
   /// Families of Chrome commands this webview keeps rather than swallows.
   ///
   /// Empty by default, which blocks every group in [`ChromeCommandGroup`].
@@ -1360,6 +1381,10 @@ impl std::fmt::Debug for CefWebviewAttributes {
       .field(
         "console_message_handler",
         &self.console_message_handler.is_some(),
+      )
+      .field(
+        "desktop_capture_handler",
+        &self.desktop_capture_handler.is_some(),
       )
       .field("allowed_chrome_commands", &self.allowed_chrome_commands)
       .field(

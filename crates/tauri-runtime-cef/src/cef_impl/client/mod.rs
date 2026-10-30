@@ -54,6 +54,7 @@ pub(crate) struct TauriCefBrowserClientHandlers<T: UserEvent> {
   pub(crate) download_handler: Option<Arc<tauri_runtime::webview::DownloadHandler>>,
   pub(crate) console_message_handler: Option<Arc<crate::ConsoleMessageHandler>>,
   pub(crate) permission_request_handler: Option<Arc<PermissionRequestHandler>>,
+  pub(crate) desktop_capture_handler: Option<Arc<crate::DesktopCaptureHandler>>,
   pub(crate) web_content_process_terminate_handler:
     Option<Arc<tauri_runtime::webview::OnWebContentProcessTerminateHandler>>,
 }
@@ -70,6 +71,7 @@ impl<T: UserEvent> Clone for TauriCefBrowserClientHandlers<T> {
       download_handler: self.download_handler.clone(),
       console_message_handler: self.console_message_handler.clone(),
       permission_request_handler: self.permission_request_handler.clone(),
+      desktop_capture_handler: self.desktop_capture_handler.clone(),
       web_content_process_terminate_handler: self.web_content_process_terminate_handler.clone(),
     }
   }
@@ -190,6 +192,9 @@ wrap_with_args! {
                 response => response,
               }) as Arc<PermissionRequestHandler>
             }),
+            // A desktop capture grant is for the app's own content, never for
+            // whatever a popup navigated to.
+            desktop_capture_handler: None,
             // A `ConsoleMessage` carries the source URL of whatever logged it, so
             // routing a popup's output to the opener's observer would report an
             // SSO or OAuth window's URLs to an observer registered for the app's
@@ -263,6 +268,7 @@ wrap_with_args! {
     fn permission_handler(&self) -> Option<PermissionHandler> {
       Some(TauriCefPermissionHandler::new(
         self.handlers.permission_request_handler.clone(),
+        self.handlers.desktop_capture_handler.clone(),
       ))
     }
 
