@@ -228,6 +228,7 @@ wrap_with_args! {
       Some(TauriCefLoadHandler::new(
         self.handlers.on_page_load_handler.clone(),
         self.handlers.frame_event_handler.clone(),
+        self.frame_navigation_state.clone(),
       ))
     }
 
